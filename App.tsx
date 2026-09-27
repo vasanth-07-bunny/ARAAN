@@ -1,4 +1,4 @@
-import { useState, type ComponentType } from "react";
+import { Fragment, useState, type ComponentType } from "react";
 import {
   Activity,
   ArrowDownToLine,
@@ -47,10 +47,14 @@ import {
   TrendingUp,
   UserRound,
   Users,
+  Pencil,
+  SlidersHorizontal,
+  ArrowUpDown,
   Wallet,
   Zap,
 } from "lucide-react";
 import { Toaster, toast } from "sonner";
+import { filterLinks, isValidAlias, linksToCsv, normalizeAlias, type ShortLink } from "./link-utils";
 
 const navGroups = [
   {
@@ -96,14 +100,16 @@ const pageTitles: Record<string, { eyebrow: string; title: string; description: 
 };
 
 type IconType = ComponentType<{ size?: number; strokeWidth?: number }>;
-type ShortLink = {
-  id: string;
-  url: string;
-  shortUrl: string;
-  createdAt: string;
-  clicks: number;
-  status: "Active";
-};
+const mockLinks: ShortLink[] = [
+  { id: "demo-1", url: "https://www.arolinks.com/blog/creator-monetization", shortUrl: "https://aro.li/creator-playbook", alias: "creator-playbook", title: "Creator monetization playbook", description: "A guide for growing a publishing business.", advertisingType: "Interstitial", createdAt: "2 hours ago", clicks: 1842, earnings: 18.42, status: "Active" },
+  { id: "demo-2", url: "https://www.arolinks.com/tools/utm-builder", shortUrl: "https://aro.li/utm-tool", alias: "utm-tool", title: "UTM campaign builder", description: "Build cleaner tracking links for every campaign.", advertisingType: "Direct link", createdAt: "Yesterday", clicks: 936, earnings: 9.36, status: "Active" },
+  { id: "demo-3", url: "https://www.arolinks.com/academy/social-growth", shortUrl: "https://aro.li/social-growth", alias: "social-growth", title: "Social growth academy", description: "Practical lessons for a better content engine.", advertisingType: "Banner", createdAt: "3 days ago", clicks: 611, earnings: 6.11, status: "Active" },
+  { id: "demo-4", url: "https://www.arolinks.com/newsletter", shortUrl: "https://aro.li/weekly-brief", alias: "weekly-brief", title: "The weekly brief", description: "A concise weekly roundup for the community.", advertisingType: "Interstitial", createdAt: "5 days ago", clicks: 278, earnings: 2.78, status: "Active" },
+];
+
+const formatMoney = (value: number) => `$${value.toFixed(2)}`;
+const totalClicks = (links: ShortLink[]) => links.reduce((sum, link) => sum + link.clicks, 0);
+const totalEarnings = (links: ShortLink[]) => links.reduce((sum, link) => sum + link.earnings, 0);
 
 function Icon({ icon: IconComponent, size = 16 }: { icon: IconType; size?: number }) {
   return <IconComponent size={size} strokeWidth={1.8} />;
@@ -114,7 +120,10 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(() => typeof window === "undefined" || window.innerWidth >= 900);
   const [url, setUrl] = useState("");
   const [shortened, setShortened] = useState("");
-  const [links, setLinks] = useState<ShortLink[]>([]);
+  const [customAlias, setCustomAlias] = useState("");
+  const [linkTitle, setLinkTitle] = useState("");
+  const [links, setLinks] = useState<ShortLink[]>(mockLinks);
+  const [payoutMethod, setPayoutMethod] = useState("");
 
   const navigate = (page: string) => {
     setActivePage(page);
@@ -138,17 +147,34 @@ function App() {
       const parsed = new URL(candidate);
       if (!parsed.hostname.includes(".")) throw new Error("invalid hostname");
       const token = Math.random().toString(36).slice(2, 8);
+      const normalizedAlias = normalizeAlias(customAlias);
+      if (normalizedAlias && !isValidAlias(normalizedAlias)) {
+        toast.error("Use 3–31 lowercase letters, numbers, or hyphens for your alias.");
+        return;
+      }
+      if (normalizedAlias && links.some((link) => link.alias === normalizedAlias)) {
+        toast.error("That alias is already in use. Try another one.");
+        return;
+      }
+      const alias = normalizedAlias || token;
       const createdLink: ShortLink = {
         id: `${Date.now()}-${token}`,
         url: parsed.toString(),
-        shortUrl: `https://aro.li/${token}`,
+        shortUrl: `https://aro.li/${alias}`,
+        alias,
+        title: linkTitle.trim() || parsed.hostname.replace(/^www\./, ""),
+        description: "",
+        advertisingType: "Interstitial",
         createdAt: "Just now",
         clicks: 0,
+        earnings: 0,
         status: "Active",
       };
       setLinks((current) => [createdLink, ...current]);
       setShortened(createdLink.shortUrl);
       setUrl("");
+      setCustomAlias("");
+      setLinkTitle("");
       toast.success("Short link created", { description: `${createdLink.shortUrl} is ready to share.` });
     } catch {
       toast.error("Enter a valid website address, like example.com.");
@@ -217,14 +243,14 @@ function App() {
             <div className="heading-meta"><span className="live-dot" /> Live workspace <span className="meta-divider" /> <span>14 August 2026</span></div>
           </div>
 
-          {activePage === "dashboard" && <Dashboard url={url} setUrl={setUrl} shortened={shortened} onShorten={handleShorten} onCreate={focusShortener} navigate={navigate} links={links} />}
-          {activePage === "statistics" && <Statistics />}
-          {activePage === "links" && <ManageLinks links={links} onCreate={focusShortener} />}
+          {activePage === "dashboard" && <Dashboard url={url} setUrl={setUrl} customAlias={customAlias} setCustomAlias={setCustomAlias} linkTitle={linkTitle} setLinkTitle={setLinkTitle} shortened={shortened} onShorten={handleShorten} onCreate={focusShortener} navigate={navigate} links={links} payoutMethod={payoutMethod} />}
+          {activePage === "statistics" && <Statistics links={links} />}
+          {activePage === "links" && <ManageLinks links={links} setLinks={setLinks} onCreate={focusShortener} />}
           {activePage === "tools" && <Tools />}
           {activePage === "referrals" && <Referrals />}
           {activePage === "invoices" && <Invoices />}
-          {activePage === "withdraw" && <Withdraw />}
-          {activePage === "settings" && <SettingsPage />}
+          {activePage === "withdraw" && <Withdraw payoutMethod={payoutMethod} />}
+          {activePage === "settings" && <SettingsPage payoutMethod={payoutMethod} onPayoutMethodChange={setPayoutMethod} />}
           {activePage === "support" && <Support />}
           {activePage === "plans" && <Plans />}
           {activePage === "earn" && <EarnNow navigate={navigate} />}
@@ -234,8 +260,10 @@ function App() {
   );
 }
 
-function Dashboard({ url, setUrl, shortened, onShorten, onCreate, navigate, links }: { url: string; setUrl: (value: string) => void; shortened: string; onShorten: () => void; onCreate: () => void; navigate: (page: string) => void; links: ShortLink[] }) {
-  const completedSteps = links.length > 0 ? 1 : 0;
+function Dashboard({ url, setUrl, customAlias, setCustomAlias, linkTitle, setLinkTitle, shortened, onShorten, onCreate, navigate, links, payoutMethod }: { url: string; setUrl: (value: string) => void; customAlias: string; setCustomAlias: (value: string) => void; linkTitle: string; setLinkTitle: (value: string) => void; shortened: string; onShorten: () => void; onCreate: () => void; navigate: (page: string) => void; links: ShortLink[]; payoutMethod: string }) {
+  const completedSteps = (links.length > 0 ? 1 : 0) + (payoutMethod ? 1 : 0);
+  const clicks = totalClicks(links);
+  const earnings = totalEarnings(links);
   return <>
     <section className="hero-grid">
       <div className="quick-card" id="quick-shortener">
@@ -246,7 +274,11 @@ function Dashboard({ url, setUrl, shortened, onShorten, onCreate, navigate, link
           <input id="quick-shortener-input" type="text" inputMode="url" value={url} onChange={(event) => setUrl(event.target.value)} placeholder="Paste a URL, e.g. yoursite.com/article" aria-label="URL to shorten" />
           <button type="submit" disabled={!url.trim()}>Shorten <ArrowUpRight size={16} /></button>
         </form>
-        <div className="input-hint">Press Enter to create · Your new links stay in Manage Links</div>
+        <div className="shorten-options">
+          <label><span>Custom alias <em>optional</em></span><div className="alias-input"><span>aro.li/</span><input value={customAlias} onChange={(event) => setCustomAlias(event.target.value)} placeholder="my-campaign" /></div></label>
+          <label><span>Link title <em>optional</em></span><input value={linkTitle} onChange={(event) => setLinkTitle(event.target.value)} placeholder="Campaign title" /></label>
+        </div>
+        <div className="input-hint">Press Enter to create · Add an alias to make your vanity URL memorable</div>
         {shortened && <div className="shortened-result"><Check size={14} /><span>{shortened}</span><button type="button" aria-label="Copy shortened link" onClick={() => { navigator.clipboard?.writeText(shortened); toast.success("Link copied"); }}><Copy size={14} /></button><button type="button" className="result-view" onClick={() => navigate("links")}>View <ExternalLink size={12} /></button></div>}
         <button className="advanced-link" onClick={() => navigate("tools")}>Advanced Options <ChevronRight size={14} /></button>
       </div>
@@ -263,7 +295,7 @@ function Dashboard({ url, setUrl, shortened, onShorten, onCreate, navigate, link
         <div className="progress-track"><span style={{ width: `${Math.max(8, (completedSteps / 3) * 100)}%` }} /></div>
         <div className="activation-steps">
           <button className={`activation-step ${links.length > 0 ? "complete" : "current"}`} onClick={onCreate}><span className="step-number">{links.length > 0 ? <Check size={13} /> : "1"}</span><span><strong>Shorten your first link</strong><small>{links.length > 0 ? "First link created — keep publishing." : "Create a share-ready link in seconds."}</small></span><ArrowUpRight size={14} /></button>
-          <button className="activation-step" onClick={() => navigate("settings")}><span className="step-number">2</span><span><strong>Add a payout method</strong><small>Be ready when your balance reaches the minimum.</small></span><ArrowUpRight size={14} /></button>
+          <button className={`activation-step ${payoutMethod ? "complete" : ""}`} onClick={() => navigate("settings")}><span className="step-number">{payoutMethod ? <Check size={13} /> : "2"}</span><span><strong>{payoutMethod ? "Payout method connected" : "Add a payout method"}</strong><small>{payoutMethod ? `${payoutMethod} is ready for withdrawals.` : "Be ready when your balance reaches the minimum."}</small></span>{payoutMethod ? <Check size={14} /> : <ArrowUpRight size={14} />}</button>
           <button className="activation-step" onClick={() => navigate("referrals")}><span className="step-number">3</span><span><strong>Invite your network</strong><small>Earn a 10% lifetime commission on referrals.</small></span><ArrowUpRight size={14} /></button>
         </div>
       </div>
@@ -276,16 +308,16 @@ function Dashboard({ url, setUrl, shortened, onShorten, onCreate, navigate, link
     <section className="section-block">
       <div className="section-title-row"><div><div className="eyebrow">Performance / Monthly report</div><h2>This Month's report</h2></div><button className="date-pill"><CalendarIcon /> 14 August <ChevronDown size={14} /></button></div>
       <div className="metric-grid">
-        <Metric icon={EyeIcon} label="Total Views" value="0" note={links.length > 0 ? `${links.length} active link${links.length === 1 ? "" : "s"}` : "No traffic yet"} tone="cyan" />
-        <Metric icon={Wallet} label="Total Earnings" value="$0.00" note="This month" tone="purple" />
-        <Metric icon={Users} label="Referral Earnings" value="$0.00" note="10% lifetime commission" tone="orange" />
-        <Metric icon={TrendingUp} label="Average CPM" value="0" note="Current plan rate" tone="green" />
+        <Metric icon={EyeIcon} label="Total Views" value={clicks.toLocaleString()} note={`${links.length} active link${links.length === 1 ? "" : "s"}`} tone="cyan" />
+        <Metric icon={Wallet} label="Total Earnings" value={formatMoney(earnings)} note="This month" tone="purple" />
+        <Metric icon={Users} label="Referral Earnings" value="$24.80" note="10% lifetime commission" tone="orange" />
+        <Metric icon={TrendingUp} label="Average CPM" value="$10.00" note="Current plan rate" tone="green" />
       </div>
     </section>
 
     <section className="section-block">
       <div className="section-title-row"><div><div className="eyebrow">Realtime pulse</div><h2>Today's report</h2></div><span className="muted-label">14 August · 10:00 PM</span></div>
-      <div className="today-strip"><MiniMetric label="Views" value="0" icon={Activity} /><MiniMetric label="Link earnings" value="$0.00" icon={Wallet} /><MiniMetric label="Referral earnings" value="$0.00" icon={Users} /><MiniMetric label="Daily CPM" value="0" icon={BarChart3} /></div>
+      <div className="today-strip"><MiniMetric label="Views" value={Math.round(clicks * 0.16).toLocaleString()} icon={Activity} /><MiniMetric label="Link earnings" value={formatMoney(earnings * 0.16)} icon={Wallet} /><MiniMetric label="Referral earnings" value="$4.20" icon={Users} /><MiniMetric label="Daily CPM" value="$10.00" icon={BarChart3} /></div>
     </section>
 
     <section className="report-grid">
@@ -297,27 +329,41 @@ function Dashboard({ url, setUrl, shortened, onShorten, onCreate, navigate, link
   </>;
 }
 
-function Statistics() {
-  return <><div className="metric-grid"><Metric icon={EyeIcon} label="Total Views" value="0" note="Lifetime" tone="cyan" /><Metric icon={Wallet} label="Total Earnings" value="$0.00" note="Lifetime" tone="purple" /><Metric icon={Target} label="Best CPM" value="0" note="No data yet" tone="orange" /><Metric icon={TrendingUp} label="Conversion rate" value="0%" note="No data yet" tone="green" /></div><section className="panel chart-panel wide-panel"><div className="panel-heading"><div><span className="eyebrow">Monthly performance</span><h2>Views & earnings</h2></div><button className="date-pill">August 2026 <ChevronDown size={14} /></button></div><div className="chart-area tall"><div className="y-axis"><span>100</span><span>75</span><span>50</span><span>25</span><span>0</span></div><div className="chart-canvas"><div className="grid-line line-1" /><div className="grid-line line-2" /><div className="grid-line line-3" /><div className="grid-line line-4" /><div className="grid-line line-5" /><svg viewBox="0 0 1000 280" preserveAspectRatio="none"><path d="M0 252 L120 252 L240 252 L360 252 L480 252 L600 252 L720 252 L840 252 L1000 252" fill="none" stroke="#42c6da" strokeWidth="3" strokeDasharray="5 8" /><path d="M0 252 L120 252 L240 252 L360 252 L480 252 L600 252 L720 252 L840 252 L1000 252" fill="none" stroke="#a071ff" strokeWidth="3" strokeDasharray="3 9" /></svg><div className="x-axis"><span>01 Aug</span><span>07 Aug</span><span>14 Aug</span><span>21 Aug</span><span>31 Aug</span></div></div></div></section><section className="panel table-panel"><div className="panel-heading"><div><span className="eyebrow">August 2026</span><h2>Daily report</h2></div><button className="outline-button"><Filter size={14} /> Filter</button></div><PerformanceTable /></section></>;
+function Statistics({ links }: { links: ShortLink[] }) {
+  const clicks = totalClicks(links);
+  const earnings = totalEarnings(links);
+  return <><div className="metric-grid"><Metric icon={EyeIcon} label="Total Views" value={clicks.toLocaleString()} note="Lifetime" tone="cyan" /><Metric icon={Wallet} label="Total Earnings" value={formatMoney(earnings)} note="Lifetime" tone="purple" /><Metric icon={Target} label="Best CPM" value="$10.00" note="Current plan" tone="orange" /><Metric icon={TrendingUp} label="Conversion rate" value="12.8%" note="Active account" tone="green" /></div><section className="panel chart-panel wide-panel"><div className="panel-heading"><div><span className="eyebrow">Monthly performance</span><h2>Views & earnings</h2></div><button className="date-pill">August 2026 <ChevronDown size={14} /></button></div><div className="chart-area tall"><div className="y-axis"><span>100</span><span>75</span><span>50</span><span>25</span><span>0</span></div><div className="chart-canvas"><div className="grid-line line-1" /><div className="grid-line line-2" /><div className="grid-line line-3" /><div className="grid-line line-4" /><div className="grid-line line-5" /><svg viewBox="0 0 1000 280" preserveAspectRatio="none"><path d="M0 252 L120 252 L240 252 L360 252 L480 252 L600 252 L720 252 L840 252 L1000 252" fill="none" stroke="#42c6da" strokeWidth="3" strokeDasharray="5 8" /><path d="M0 252 L120 252 L240 252 L360 252 L480 252 L600 252 L720 252 L840 252 L1000 252" fill="none" stroke="#a071ff" strokeWidth="3" strokeDasharray="3 9" /></svg><div className="x-axis"><span>01 Aug</span><span>07 Aug</span><span>14 Aug</span><span>21 Aug</span><span>31 Aug</span></div></div></div></section><section className="panel table-panel"><div className="panel-heading"><div><span className="eyebrow">August 2026</span><h2>Daily report</h2></div><button className="outline-button"><Filter size={14} /> Filter</button></div><PerformanceTable /></section></>;
 }
 
-function ManageLinks({ links, onCreate }: { links: ShortLink[]; onCreate: () => void }) {
+function ManageLinks({ links, setLinks, onCreate }: { links: ShortLink[]; setLinks: React.Dispatch<React.SetStateAction<ShortLink[]>>; onCreate: () => void }) {
   const [tab, setTab] = useState("all");
   const [alias, setAlias] = useState("");
   const [search, setSearch] = useState("");
+  const [advertisingType, setAdvertisingType] = useState("All advertising types");
+  const [sort, setSort] = useState("newest");
   const [submitted, setSubmitted] = useState(false);
-  const visibleLinks = links.filter((link) => {
-    const query = `${link.shortUrl} ${link.url}`.toLowerCase();
-    return tab === "all" && (!alias || link.shortUrl.toLowerCase().includes(alias.toLowerCase())) && (!search || query.includes(search.toLowerCase()));
-  });
+  const visibleLinks = filterLinks(links, { tab: tab as "all" | "hidden", alias, search, advertisingType: advertisingType as "All advertising types" | ShortLink["advertisingType"], sort: sort as "newest" | "oldest" | "clicks" | "earnings" });
+  const updateLink = (updated: ShortLink) => setLinks((current) => current.map((link) => link.id === updated.id ? updated : link));
+  const exportVisibleLinks = () => {
+    const blob = new Blob([linksToCsv(visibleLinks)], { type: "text/csv;charset=utf-8" });
+    const downloadUrl = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = downloadUrl;
+    anchor.download = `araan-links-${new Date().toISOString().slice(0, 10)}.csv`;
+    anchor.click();
+    URL.revokeObjectURL(downloadUrl);
+    toast.success(`${visibleLinks.length} link${visibleLinks.length === 1 ? "" : "s"} exported`);
+  };
 
-  return <><div className="tab-bar"><button className={tab === "all" ? "active" : ""} onClick={() => setTab("all")}>All Links <span>{links.length}</span></button><button className={tab === "hidden" ? "active" : ""} onClick={() => setTab("hidden")}>Hidden Links <span>0</span></button></div><section className="panel filter-panel"><div className="panel-heading"><div><span className="eyebrow">Link library</span><h2>{tab === "all" ? "All links" : "Hidden links"}</h2></div><button className="soft-button" onClick={onCreate}> <Plus size={14} /> New link</button></div><div className="form-grid three"><Field label={tab === "all" ? "Alias" : "Link ID"} placeholder={tab === "all" ? "e.g. summer-offer" : "e.g. 10293"} value={alias} onChange={setAlias} icon={Link2} /><SelectField label="Advertising Type" options={["All advertising types", "Interstitial", "Direct link", "Banner"]} /><Field label="Title, Desc, or URL" placeholder="Search your links" icon={Search} value={search} onChange={setSearch} /></div><div className="filter-actions"><button className="primary-button" onClick={() => { setSubmitted(true); toast.success(`${visibleLinks.length} link${visibleLinks.length === 1 ? "" : "s"} found`); }}><Filter size={15} /> Filter</button><button className="ghost-button" onClick={() => { setAlias(""); setSearch(""); setSubmitted(false); }}>Reset</button>{submitted && <span className="filter-result"><Check size={14} /> Search complete</span>}</div></section><section className="panel table-panel">{visibleLinks.length > 0 ? <LinkTable links={visibleLinks} /> : <div className="empty-state"><div className="empty-icon"><Link2 size={22} /></div><h3>{links.length === 0 ? "Your link library is empty" : "No links found"}</h3><p>{links.length === 0 ? "Shorten your first link to start tracking shares and earnings." : `Nothing matches “${search || alias}”. Try another search.`}</p><button className="primary-button" onClick={onCreate}>{links.length === 0 ? "Create your first link" : "Shorten a new link"} <ArrowUpRight size={15} /></button></div>}</section></>;
+  return <><div className="tab-bar"><button className={tab === "all" ? "active" : ""} onClick={() => setTab("all")}>All Links <span>{links.length}</span></button><button className={tab === "hidden" ? "active" : ""} onClick={() => setTab("hidden")}>Hidden Links <span>0</span></button></div><section className="panel filter-panel"><div className="panel-heading"><div><span className="eyebrow">Link library</span><h2>{tab === "all" ? "All links" : "Hidden links"}</h2></div><button className="soft-button" onClick={onCreate}> <Plus size={14} /> New link</button></div><div className="form-grid three"><Field label={tab === "all" ? "Alias" : "Link ID"} placeholder={tab === "all" ? "e.g. summer-offer" : "e.g. 10293"} value={alias} onChange={setAlias} icon={Link2} /><label className="field-label"><span>Advertising Type</span><div className="input-wrap select-wrap"><select value={advertisingType} onChange={(event) => setAdvertisingType(event.target.value)}><option>All advertising types</option><option>Interstitial</option><option>Direct link</option><option>Banner</option></select><ChevronDown size={14} /></div></label><Field label="Title, Desc, or URL" placeholder="Search your links" icon={Search} value={search} onChange={setSearch} /></div><div className="filter-actions"><button className="primary-button" onClick={() => { setSubmitted(true); toast.success(`${visibleLinks.length} link${visibleLinks.length === 1 ? "" : "s"} found`); }}><Filter size={15} /> Filter</button><button className="ghost-button" onClick={() => { setAlias(""); setSearch(""); setAdvertisingType("All advertising types"); setSubmitted(false); }}>Reset</button>{submitted && <span className="filter-result"><Check size={14} /> Search complete</span>}</div></section><section className="panel table-panel"><div className="table-toolbar"><div><span className="table-summary"><SlidersHorizontal size={14} /> {visibleLinks.length} visible links</span></div><div className="table-toolbar-actions"><button className="outline-button" onClick={exportVisibleLinks} disabled={!visibleLinks.length}><ArrowDownToLine size={14} /> Export CSV</button><label className="sort-control"><ArrowUpDown size={14} /><span>Sort by</span><select value={sort} onChange={(event) => setSort(event.target.value)}><option value="newest">Newest</option><option value="oldest">Oldest</option><option value="clicks">Most clicks</option><option value="earnings">Highest earnings</option></select></label></div></div>{visibleLinks.length > 0 ? <LinkTable links={visibleLinks} onEdit={updateLink} /> : <div className="empty-state"><div className="empty-icon"><Link2 size={22} /></div><h3>{links.length === 0 ? "Your link library is empty" : "No links found"}</h3><p>{links.length === 0 ? "Shorten your first link to start tracking shares and earnings." : `Nothing matches “${search || alias}”. Try another search.`}</p><button className="primary-button" onClick={onCreate}>{links.length === 0 ? "Create your first link" : "Shorten a new link"} <ArrowUpRight size={15} /></button></div>}</section></>;
 }
 
-function LinkTable({ links }: { links: ShortLink[] }) {
-  return <div className="data-table-wrap"><table className="links-table"><thead><tr><th>SHORT LINK</th><th>DESTINATION</th><th>CLICKS</th><th>STATUS</th><th /></tr></thead><tbody>{links.map((link) => <tr key={link.id}><td><div className="link-table-primary"><Link2 size={13} /><strong>{link.shortUrl.replace("https://", "")}</strong></div><span className="table-subtext">Created {link.createdAt}</span></td><td><span className="destination-cell">{link.url}</span></td><td>{link.clicks}</td><td><span className="status-pill">{link.status}</span></td><td><button className="table-icon-button" aria-label={`Copy ${link.shortUrl}`} onClick={() => { navigator.clipboard?.writeText(link.shortUrl); toast.success("Link copied"); }}><Copy size={14} /></button></td></tr>)}</tbody></table></div>;
+function LinkTable({ links, onEdit }: { links: ShortLink[]; onEdit: (link: ShortLink) => void }) {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draft, setDraft] = useState<ShortLink | null>(null);
+  const beginEdit = (link: ShortLink) => { setEditingId(link.id); setDraft({ ...link }); };
+  return <div className="data-table-wrap"><table className="links-table"><thead><tr><th>SHORT LINK</th><th>DESTINATION / METADATA</th><th>CLICKS</th><th>EARNINGS</th><th>STATUS</th><th /></tr></thead><tbody>{links.map((link) => <Fragment key={link.id}>{editingId === link.id && draft ? <tr className="edit-row" key={`${link.id}-edit`}><td colSpan={6}><div className="inline-editor"><div className="inline-editor-heading"><div><span className="eyebrow">Editing link</span><strong>{link.shortUrl}</strong></div><button className="table-icon-button" onClick={() => setEditingId(null)} aria-label="Close editor">×</button></div><div className="form-grid three"><Field label="Alias" value={draft.alias} onChange={(value) => setDraft({ ...draft, alias: value, shortUrl: `https://aro.li/${value || link.alias}` })} /><Field label="Title" value={draft.title} onChange={(value) => setDraft({ ...draft, title: value })} /><Field label="Description" value={draft.description} onChange={(value) => setDraft({ ...draft, description: value })} /></div><div className="inline-editor-actions"><button className="primary-button" onClick={() => { if (!draft.alias.trim()) { toast.error("Alias cannot be empty."); return; } const cleanAlias = normalizeAlias(draft.alias); onEdit({ ...draft, alias: cleanAlias, shortUrl: `https://aro.li/${cleanAlias}` }); setEditingId(null); toast.success("Link metadata updated"); }}>Save metadata <Check size={14} /></button><button className="ghost-button" onClick={() => setEditingId(null)}>Cancel</button></div></div></td></tr> : <tr key={link.id}><td><div className="link-table-primary"><Link2 size={13} /><strong>{link.shortUrl.replace("https://", "")}</strong></div><span className="table-subtext">{link.alias} · Created {link.createdAt}</span></td><td><strong className="link-title">{link.title}</strong><span className="destination-cell">{link.url}</span><span className="table-subtext">{link.advertisingType} · {link.description || "No description"}</span></td><td>{link.clicks.toLocaleString()}</td><td>{formatMoney(link.earnings)}</td><td><span className="status-pill">{link.status}</span></td><td><button className="table-icon-button" aria-label={`Edit ${link.alias}`} onClick={() => beginEdit(link)}><Pencil size={14} /></button></td></tr>}</Fragment>)}</tbody></table></div>;
 }
-
 function Tools() {
   const [tool, setTool] = useState("quick");
   const [urls, setUrls] = useState("");
@@ -334,9 +380,9 @@ function ToolBookmarklet() { return <div className="panel tool-panel bookmarklet
 
 function Referrals() { return <><section className="referral-hero"><div className="referral-copy"><span className="eyebrow">Partner program</span><h2>Grow together, earn together.</h2><p>Invite your network to Arolinks and receive a <strong>10% lifetime commission</strong> from every referral.</p><div className="referral-link"><span>https://arolinks.com/ref/chatakonda</span><button onClick={() => { navigator.clipboard?.writeText("https://arolinks.com/ref/chatakonda"); toast.success("Referral link copied"); }}><Copy size={15} /></button></div></div><div className="referral-art"><Network size={82} strokeWidth={1} /><span className="orbit-dot one" /><span className="orbit-dot two" /><span className="orbit-dot three" /></div></section><section className="panel table-panel"><div className="panel-heading"><div><span className="eyebrow">Your network</span><h2>My Referrals</h2></div><div className="table-summary"><Users size={15} /> 0 referrals</div></div><div className="empty-state compact"><div className="empty-icon"><Users size={20} /></div><h3>No referrals yet</h3><p>Share your referral link to get started.</p></div></section></>; }
 function Invoices() { return <section className="panel table-panel"><div className="panel-heading"><div><span className="eyebrow">Billing history</span><h2>Manage Invoices</h2></div><button className="outline-button"><ArrowDownToLine size={14} /> Download all</button></div><div className="data-table-wrap"><table><thead><tr><th>ID</th><th>Status</th><th>Description</th><th>Amount</th><th>Payment Method</th><th /></tr></thead><tbody><tr><td colSpan={6}><div className="table-empty"><FileText size={21} /><strong>No invoices found</strong><span>Payment records will appear here after your first withdrawal.</span></div></td></tr></tbody></table></div></section>; }
-function Withdraw() { return <><div className="balance-grid"><Balance label="Available Balance" value="$0.00" tone="green" icon={Wallet} /><Balance label="Pending Withdrawn" value="$0.00" tone="orange" icon={RefreshCcw} /><Balance label="Total Withdraw" value="$0.00" tone="purple" icon={ArrowDownToLine} /></div><section className="withdraw-grid"><div className="panel payout-panel"><div className="panel-heading"><div><span className="eyebrow">Ready when you are</span><h2>Withdraw funds</h2></div><div className="payout-status"><span className="live-dot" /> Available</div></div><div className="payout-amount"><span>Current balance</span><strong>$0.00</strong></div><div className="payout-method"><CreditCard size={18} /><div><strong>Payment method</strong><span>Choose a method in Settings</span></div><ChevronRight size={16} /></div><button className="primary-button full" onClick={() => toast.error("Your balance has not reached the minimum withdrawal amount.")}><ArrowDownToLine size={16} /> WITHDRAW</button></div><div className="panel info-panel"><div className="panel-heading"><div><span className="eyebrow">Payout guide</span><h2>How it works</h2></div><HelpCircle size={17} /></div><p>Payments are reviewed and processed within 2–4 business days.</p><div className="status-list"><StatusLine label="Pending" color="orange" text="Request received" /><StatusLine label="Approved" color="blue" text="Request verified" /><StatusLine label="Complete" color="green" text="Funds sent" /><StatusLine label="Cancelled" color="red" text="Request stopped" /><StatusLine label="Returned" color="purple" text="Funds returned" /></div></div></section></>; }
-function SettingsPage() { const [tab, setTab] = useState("profile"); const tabs = [{ id: "profile", label: "Profile", icon: UserRound }, { id: "password", label: "Change Password", icon: LockKeyhole }, { id: "email", label: "Change Email", icon: Mail }]; return <div className="settings-layout"><div className="settings-tabs">{tabs.map((item) => <button key={item.id} className={tab === item.id ? "active" : ""} onClick={() => setTab(item.id)}><Icon icon={item.icon} /><span>{item.label}</span></button>)}</div>{tab === "profile" && <ProfileForm />}{tab === "password" && <PasswordForm />}{tab === "email" && <EmailForm />}</div>; }
-function ProfileForm() { return <div className="settings-content"><section className="panel form-panel"><FormHeader title="Billing Address" description="Keep your payout details current." icon={BriefcaseBusiness} /><div className="form-grid two"><Field label="First Name" placeholder="Chatakonda" /><Field label="Last Name" placeholder="Vasanth" /><Field label="Address" placeholder="Your address" /><Field label="City" placeholder="City" /><Field label="State" placeholder="State" /><Field label="ZIP" placeholder="ZIP code" /><SelectField label="Country" options={["India", "United States", "United Kingdom"]} /><Field label="Phone Number" placeholder="+91 00000 00000" /></div></section><section className="panel form-panel"><FormHeader title="Contact Methods" description="Add the channels where we can reach you." icon={MessageCircle} /><div className="form-grid three"><Field label="WhatsApp Number" placeholder="WhatsApp number" /><Field label="Telegram Username" placeholder="@username" /><Field label="Skype ID" placeholder="Skype ID" /></div></section><section className="panel form-panel"><FormHeader title="Withdrawal Info" description="Select how you would like to receive your earnings." icon={Wallet} /><div className="form-grid two"><SelectField label="Withdrawal Method" options={["Select payment method", "PayPal", "Bitcoin", "Bank Transfer India", "UPI", "GooglePay"]} /><div className="minimum-list"><span>Minimum withdrawal</span><strong>PayPal <em>$5.00</em></strong><strong>Bitcoin <em>$20.00</em></strong><strong>Bank Transfer India <em>$2.00</em></strong><strong>UPI <em>$2.00</em></strong><strong>GooglePay <em>$2.00</em></strong></div></div><button className="primary-button" onClick={() => toast.success("Profile changes saved")}>Save changes <Check size={15} /></button></section></div>; }
+function Withdraw({ payoutMethod }: { payoutMethod: string }) { return <><div className="balance-grid"><Balance label="Available Balance" value="$0.00" tone="green" icon={Wallet} /><Balance label="Pending Withdrawn" value="$0.00" tone="orange" icon={RefreshCcw} /><Balance label="Total Withdraw" value="$0.00" tone="purple" icon={ArrowDownToLine} /></div><section className="withdraw-grid"><div className="panel payout-panel"><div className="panel-heading"><div><span className="eyebrow">Ready when you are</span><h2>Withdraw funds</h2></div><div className="payout-status"><span className="live-dot" /> Available</div></div><div className="payout-amount"><span>Current balance</span><strong>$0.00</strong></div><div className="payout-method"><CreditCard size={18} /><div><strong>Payment method</strong><span>{payoutMethod ? `${payoutMethod} connected` : "Choose a method in Settings"}</span></div><ChevronRight size={16} /></div><button className="primary-button full" onClick={() => toast.error("Your balance has not reached the minimum withdrawal amount.")}><ArrowDownToLine size={16} /> WITHDRAW</button></div><div className="panel info-panel"><div className="panel-heading"><div><span className="eyebrow">Payout guide</span><h2>How it works</h2></div><HelpCircle size={17} /></div><p>Payments are reviewed and processed within 2–4 business days.</p><div className="status-list"><StatusLine label="Pending" color="orange" text="Request received" /><StatusLine label="Approved" color="blue" text="Request verified" /><StatusLine label="Complete" color="green" text="Funds sent" /><StatusLine label="Cancelled" color="red" text="Request stopped" /><StatusLine label="Returned" color="purple" text="Funds returned" /></div></div></section></>; }
+function SettingsPage({ payoutMethod, onPayoutMethodChange }: { payoutMethod: string; onPayoutMethodChange: (value: string) => void }) { const [tab, setTab] = useState("profile"); const tabs = [{ id: "profile", label: "Profile", icon: UserRound }, { id: "password", label: "Change Password", icon: LockKeyhole }, { id: "email", label: "Change Email", icon: Mail }]; return <div className="settings-layout"><div className="settings-tabs">{tabs.map((item) => <button key={item.id} className={tab === item.id ? "active" : ""} onClick={() => setTab(item.id)}><Icon icon={item.icon} /><span>{item.label}</span></button>)}</div>{tab === "profile" && <ProfileForm payoutMethod={payoutMethod} onPayoutMethodChange={onPayoutMethodChange} />}{tab === "password" && <PasswordForm />}{tab === "email" && <EmailForm />}</div>; }
+function ProfileForm({ payoutMethod, onPayoutMethodChange }: { payoutMethod: string; onPayoutMethodChange: (value: string) => void }) { return <div className="settings-content"><section className="panel form-panel"><FormHeader title="Billing Address" description="Keep your payout details current." icon={BriefcaseBusiness} /><div className="form-grid two"><Field label="First Name" placeholder="Chatakonda" /><Field label="Last Name" placeholder="Vasanth" /><Field label="Address" placeholder="Your address" /><Field label="City" placeholder="City" /><Field label="State" placeholder="State" /><Field label="ZIP" placeholder="ZIP code" /><SelectField label="Country" options={["India", "United States", "United Kingdom"]} /><Field label="Phone Number" placeholder="+91 00000 00000" /></div></section><section className="panel form-panel"><FormHeader title="Contact Methods" description="Add the channels where we can reach you." icon={MessageCircle} /><div className="form-grid three"><Field label="WhatsApp Number" placeholder="WhatsApp number" /><Field label="Telegram Username" placeholder="@username" /><Field label="Skype ID" placeholder="Skype ID" /></div></section><section className="panel form-panel"><FormHeader title="Withdrawal Info" description="Select how you would like to receive your earnings." icon={Wallet} /><div className="form-grid two"><label className="field-label"><span>Withdrawal Method</span><div className="input-wrap select-wrap"><select value={payoutMethod} onChange={(event) => onPayoutMethodChange(event.target.value)}><option value="">Select payment method</option><option>PayPal</option><option>Bitcoin</option><option>Bank Transfer India</option><option>UPI</option><option>GooglePay</option></select><ChevronDown size={14} /></div></label><div className="minimum-list"><span>Minimum withdrawal</span><strong>PayPal <em>$5.00</em></strong><strong>Bitcoin <em>$20.00</em></strong><strong>Bank Transfer India <em>$2.00</em></strong><strong>UPI <em>$2.00</em></strong><strong>GooglePay <em>$2.00</em></strong></div></div><div className={`payout-completion ${payoutMethod ? "complete" : ""}`}><span className="payout-completion-icon">{payoutMethod ? <Check size={14} /> : <CreditCard size={14} />}</span><div><strong>{payoutMethod ? "Payout method complete" : "Payout method incomplete"}</strong><small>{payoutMethod ? `${payoutMethod} is connected and ready for your first withdrawal.` : "Choose a method above to complete this onboarding step."}</small></div></div><button className="primary-button" onClick={() => toast.success(payoutMethod ? "Payout method saved" : "Choose a payout method first")}>Save changes <Check size={15} /></button></section></div>; }
 function PasswordForm() { return <div className="settings-content"><section className="panel form-panel narrow-form"><FormHeader title="Change Password" description="Use a unique password to protect your account." icon={LockKeyhole} /><Field label="Current Password" placeholder="Enter current password" type="password" /><Field label="New Password" placeholder="Enter new password" type="password" /><Field label="Re-enter New Password" placeholder="Re-enter new password" type="password" /><button className="primary-button" onClick={() => toast.success("Password updated")}>Update password <Check size={15} /></button></section></div>; }
 function EmailForm() { return <div className="settings-content"><section className="panel form-panel narrow-form"><FormHeader title="Change Email" description="Your current email is used for account notifications." icon={Mail} /><div className="current-email"><span>Current email</span><strong>chatakondavasanth360@gmail.com</strong></div><Field label="New Email" placeholder="Enter a new email address" type="email" /><Field label="Re-enter New Email" placeholder="Re-enter the new email address" type="email" /><button className="primary-button" onClick={() => toast.success("Email change request sent")}>Update email <Send size={15} /></button></section></div>; }
 function Support() { const [sent, setSent] = useState(false); return <div className="support-grid"><section className="panel form-panel"><FormHeader title="Submit a support ticket" description="We usually reply within 24 hours." icon={Ticket} /><div className="form-grid two"><Field label="Name" placeholder="Your name" /><Field label="Subject" placeholder="How can we help?" /><Field label="Email" placeholder="you@example.com" type="email" /></div><label className="field-label"><span>Message</span><textarea className="textarea" rows={7} placeholder="Describe your question or issue..." /></label><button className="primary-button" onClick={() => { setSent(true); toast.success("Support ticket submitted"); }}>{sent ? <><Check size={15} /> Ticket sent</> : <><Send size={15} /> Send ticket</>}</button></section><section className="support-side"><div className="support-callout"><div className="callout-icon"><MessageCircle size={20} /></div><div><span className="eyebrow">Need a quick answer?</span><h3>Talk to us directly</h3><p>Reach the support team on WhatsApp or Telegram.</p><div className="callout-actions"><button onClick={() => toast.info("WhatsApp chat opens in a new window.")}>WhatsApp <ArrowUpRight size={14} /></button><button onClick={() => toast.info("Telegram opens in a new window.")}>Telegram <ArrowUpRight size={14} /></button></div></div></div><div className="support-facts"><div><span>Average response</span><strong>&lt; 24 hours</strong></div><div><span>Support hours</span><strong>24 / 7</strong></div></div></section></div>; }
@@ -350,7 +396,7 @@ function Balance({ icon, label, value, tone }: { icon: IconType; label: string; 
 function StatusLine({ label, color, text }: { label: string; color: string; text: string }) { return <div className="status-line"><span className={`status-dot ${color}`} /><strong>{label}</strong><span>{text}</span></div>; }
 function ToolHead({ eyebrow, title, icon }: { eyebrow: string; title: string; icon: IconType }) { return <div className="tool-head"><div className="tool-head-icon"><Icon icon={icon} size={20} /></div><div><span className="eyebrow">{eyebrow}</span><h2>{title}</h2></div></div>; }
 function FormHeader({ title, description, icon }: { title: string; description: string; icon: IconType }) { return <div className="form-header"><div className="form-header-icon"><Icon icon={icon} /></div><div><h2>{title}</h2><p>{description}</p></div></div>; }
-function Field({ label, placeholder, value, onChange, icon: FieldIcon, type = "text" }: { label: string; placeholder: string; value?: string; onChange?: (value: string) => void; icon?: IconType; type?: string }) { return <label className="field-label"><span>{label}</span><div className="input-wrap">{FieldIcon && <FieldIcon size={15} />}<input type={type} value={value} onChange={(event) => onChange?.(event.target.value)} placeholder={placeholder} /></div></label>; }
+function Field({ label, placeholder, value, onChange, icon: FieldIcon, type = "text" }: { label: string; placeholder?: string; value?: string; onChange?: (value: string) => void; icon?: IconType; type?: string }) { return <label className="field-label"><span>{label}</span><div className="input-wrap">{FieldIcon && <FieldIcon size={15} />}<input type={type} value={value} onChange={(event) => onChange?.(event.target.value)} placeholder={placeholder} /></div></label>; }
 function SelectField({ label, options }: { label: string; options: string[] }) { return <label className="field-label"><span>{label}</span><div className="input-wrap select-wrap"><select defaultValue={options[0]}>{options.map((option) => <option key={option} value={option}>{option}</option>)}</select><ChevronDown size={15} /></div></label>; }
 function CalendarIcon() { return <span className="calendar-icon">14</span>; }
 function EyeIcon({ size = 16 }: { size?: number }) { return <Activity size={size} />; }
